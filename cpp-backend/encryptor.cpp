@@ -4,8 +4,12 @@
 #include <string>
 #include <limits>
 #include <cstdint>
+#include <cstring>
 
 using namespace std;
+
+// Magic header to validate successful decryption
+const string MAGIC_HEADER = "SFPRO_ENC_V1";
 
 // Function to perform XOR encryption/decryption
 void xorCipher(vector<char>& data, const string& key) {
@@ -105,9 +109,14 @@ bool encryptFile(const string& inputFile, const string& outputFile, const string
         return false;
     }
 
-    // Create header
+    // Create header with magic header for validation
+    vector<char> magicBytes(MAGIC_HEADER.begin(), MAGIC_HEADER.end());
     uint32_t filenameLength = static_cast<uint32_t>(originalFilename.size());
-    vector<char> header = sizeToBytes(filenameLength);
+    vector<char> filenameLengthBytes = sizeToBytes(filenameLength);
+    
+    // Construct header: [MAGIC_HEADER][FILENAME_LENGTH][FILENAME][FILE_DATA]
+    vector<char> header = magicBytes;
+    header.insert(header.end(), filenameLengthBytes.begin(), filenameLengthBytes.end());
     header.insert(header.end(), originalFilename.begin(), originalFilename.end());
 
     // Concatenate header and data
@@ -141,22 +150,39 @@ bool decryptFile(const string& inputFile, const string& outputDir, const string&
     // Decrypt the data
     xorCipher(inputData, key);
 
-    // Extract header
-    if (inputData.size() < 4) {
-        cerr << "Error: Encrypted file is corrupted or not in the correct format.\n";
+    // Validate magic header
+    if (inputData.size() < MAGIC_HEADER.length()) {
+        cerr << "Error: Invalid or corrupted encrypted file format.\n";
         return false;
     }
 
-    uint32_t filenameLength = bytesToSize(inputData, 0);
-    if (filenameLength == 0 || 4 + filenameLength > inputData.size()) {
+    string extractedMagic(inputData.begin(), inputData.begin() + MAGIC_HEADER.length());
+    if (extractedMagic != MAGIC_HEADER) {
+        cerr << "Error: Incorrect decryption key or corrupted file.\n";
+        return false;
+    }
+
+    // Extract filename length
+    size_t offset = MAGIC_HEADER.length();
+    if (inputData.size() < offset + 4) {
+        cerr << "Error: Invalid encrypted file format.\n";
+        return false;
+    }
+
+    uint32_t filenameLength = bytesToSize(inputData, offset);
+    offset += 4;
+
+    if (filenameLength == 0 || offset + filenameLength > inputData.size()) {
         cerr << "Error: Invalid filename length in encrypted file.\n";
         return false;
     }
 
-    string originalFilename(inputData.begin() + 4, inputData.begin() + 4 + filenameLength);
+    // Extract original filename
+    string originalFilename(inputData.begin() + offset, inputData.begin() + offset + filenameLength);
+    offset += filenameLength;
 
     // Extract file data
-    vector<char> fileData(inputData.begin() + 4 + filenameLength, inputData.end());
+    vector<char> fileData(inputData.begin() + offset, inputData.end());
 
     // Construct full output file path
     string outputFilePath = outputDir;
