@@ -104,17 +104,121 @@ export default function FileProcessor() {
     }
   };
 
-  // Simple XOR encryption/decryption function for demo
-  const xorCrypt = (data, key) => {
-    const result = new Uint8Array(data.length);
-    for (let i = 0; i < data.length; i++) {
-      result[i] = data[i] ^ key.charCodeAt(i % key.length);
+  // Magic header for validation (must match C++ version)
+  const MAGIC_HEADER = 'SFPRO_ENC_V1';
+
+  // Simple XOR encryption function with magic header for validation
+  const xorEncrypt = (data, key) => {
+    // Create header with magic header + filename length + filename
+    const originalFilename = selectedFile.name;
+    const magicBytes = new TextEncoder().encode(MAGIC_HEADER);
+    const filenameBytes = new TextEncoder().encode(originalFilename);
+    const filenameLengthBytes = new Uint8Array(4);
+    
+    // Convert filename length to 4-byte little endian
+    const filenameLength = filenameBytes.length;
+    filenameLengthBytes[0] = filenameLength & 0xFF;
+    filenameLengthBytes[1] = (filenameLength >> 8) & 0xFF;
+    filenameLengthBytes[2] = (filenameLength >> 16) & 0xFF;
+    filenameLengthBytes[3] = (filenameLength >> 24) & 0xFF;
+    
+    // Combine header and data
+    const totalLength = magicBytes.length + filenameLengthBytes.length + filenameBytes.length + data.length;
+    const combinedData = new Uint8Array(totalLength);
+    
+    let offset = 0;
+    combinedData.set(magicBytes, offset);
+    offset += magicBytes.length;
+    combinedData.set(filenameLengthBytes, offset);
+    offset += filenameLengthBytes.length;
+    combinedData.set(filenameBytes, offset);
+    offset += filenameBytes.length;
+    combinedData.set(data, offset);
+    
+    // XOR encrypt the combined data
+    const result = new Uint8Array(combinedData.length);
+    for (let i = 0; i < combinedData.length; i++) {
+      result[i] = combinedData[i] ^ key.charCodeAt(i % key.length);
     }
     return result;
   };
 
+  // XOR decryption function with enhanced validation (matching C++ logic)
+  const xorDecrypt = (data, key) => {
+    // First check if key is empty
+    if (!key || key.length === 0) {
+      throw new Error('Key cannot be empty');
+    }
+
+    // XOR decrypt the data
+    const decrypted = new Uint8Array(data.length);
+    for (let i = 0; i < data.length; i++) {
+      decrypted[i] = data[i] ^ key.charCodeAt(i % key.length);
+    }
+    
+    // Validate magic header - check minimum file size first
+    const magicBytes = new TextEncoder().encode(MAGIC_HEADER);
+    if (decrypted.length < magicBytes.length) {
+      throw new Error('Invalid or corrupted encrypted file format');
+    }
+    
+    // Extract and validate magic header
+    const extractedMagic = new TextDecoder().decode(decrypted.slice(0, magicBytes.length));
+    if (extractedMagic !== MAGIC_HEADER) {
+      throw new Error('Incorrect decryption key or corrupted file');
+    }
+    
+    // Extract filename length - ensure we have enough bytes
+    let offset = magicBytes.length;
+    if (decrypted.length < offset + 4) {
+      throw new Error('Invalid encrypted file format');
+    }
+    
+    const filenameLength = 
+      decrypted[offset] |
+      (decrypted[offset + 1] << 8) |
+      (decrypted[offset + 2] << 16) |
+      (decrypted[offset + 3] << 24);
+    
+    offset += 4;
+    
+    // Validate filename length
+    if (filenameLength === 0) {
+      throw new Error('Invalid filename length in encrypted file');
+    }
+    
+    if (offset + filenameLength > decrypted.length) {
+      throw new Error('Invalid filename length in encrypted file - exceeds file size');
+    }
+    
+    // Extract original filename with additional validation
+    let originalFilename;
+    try {
+      originalFilename = new TextDecoder().decode(decrypted.slice(offset, offset + filenameLength));
+      
+      // Validate filename contains printable characters
+      if (originalFilename.length === 0 || !/^[\x20-\x7E]+$/.test(originalFilename)) {
+        throw new Error('Invalid filename in encrypted file');
+      }
+    } catch (e) {
+      throw new Error('Invalid filename encoding in encrypted file');
+    }
+    
+    offset += filenameLength;
+    
+    // Ensure there's actual file data
+    if (offset >= decrypted.length) {
+      throw new Error('No file data found in encrypted file');
+    }
+    
+    // Extract file data
+    const fileData = decrypted.slice(offset);
+    
+    return { fileData, originalFilename };
+  };
+
   const handleProcess = async () => {
-    if (!selectedFile || !key) {
+    if (!selectedFile || !key.trim()) {
       setMessage('Please select a file and enter a key.');
       return;
     }
@@ -127,33 +231,67 @@ export default function FileProcessor() {
       const fileBuffer = await selectedFile.arrayBuffer();
       const fileData = new Uint8Array(fileBuffer);
       
-      // Process the file
-      const processedData = xorCrypt(fileData, key);
-      
-      // Create download
-      const blob = new Blob([processedData], { type: 'application/octet-stream' });
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      
       if (currentStep === 'encrypt') {
+        // Encrypt the file
+        const encryptedData = xorEncrypt(fileData, key);
+        
+        // Create download
+        const blob = new Blob([encryptedData], { type: 'application/octet-stream' });
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
         a.download = selectedFile.name + '.enc';
+        
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+        
+        setMessage('✅ File encrypted and downloaded successfully! 🎉');
       } else {
-        // For decryption, try to remove .enc extension or add _decrypted
-        const originalName = selectedFile.name;
-        a.download = originalName.endsWith('.enc') 
-          ? originalName.slice(0, -4) 
-          : originalName + '_decrypted';
+        // Decrypt the file with enhanced error handling
+        try {
+          const { fileData: decryptedData, originalFilename } = xorDecrypt(fileData, key);
+          
+          // Create download only if decryption was successful
+          const blob = new Blob([decryptedData], { type: 'application/octet-stream' });
+          const url = window.URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = originalFilename;
+          
+          document.body.appendChild(a);
+          a.click();
+          window.URL.revokeObjectURL(url);
+          document.body.removeChild(a);
+          
+          setMessage(`✅ File decrypted and downloaded successfully as "${originalFilename}"! 🎉`);
+        } catch (decryptError) {
+          // Enhanced error handling with specific messages
+          console.error('Decryption error:', decryptError.message);
+          
+          if (decryptError.message.includes('Incorrect decryption key') || 
+              decryptError.message.includes('Invalid filename') ||
+              decryptError.message.includes('Invalid filename encoding')) {
+            setMessage('🔐 Incorrect decryption key! Please verify your key and try again.');
+          } else if (decryptError.message.includes('corrupted file') || 
+                     decryptError.message.includes('Invalid encrypted file format') ||
+                     decryptError.message.includes('Invalid or corrupted encrypted file format')) {
+            setMessage('📁 The file appears to be corrupted or not in the correct encrypted format.');
+          } else if (decryptError.message.includes('Key cannot be empty')) {
+            setMessage('🔑 Please enter a decryption key.');
+          } else if (decryptError.message.includes('Invalid filename length')) {
+            setMessage('🔐 Invalid file structure. Please check your decryption key.');
+          } else if (decryptError.message.includes('No file data found')) {
+            setMessage('📁 Invalid encrypted file - no data found.');
+          } else {
+            setMessage(`❌ Decryption failed: ${decryptError.message}`);
+          }
+        }
       }
-      
-      document.body.appendChild(a);
-      a.click();
-      window.URL.revokeObjectURL(url);
-      document.body.removeChild(a);
-      
-      setMessage(`File ${currentStep}ed and downloaded successfully! 🎉`);
     } catch (error) {
-      setMessage(`Error: ${error.message}`);
+      console.error('Processing error:', error);
+      setMessage(`❌ Error processing file: ${error.message}`);
     }
 
     setLoading(false);
@@ -273,40 +411,38 @@ export default function FileProcessor() {
         <div className="flex items-center justify-between mb-8">
           <button
             onClick={handleBack}
-            className="flex items-center px-4 py-2 text-gray-600 hover:text-gray-800 transition-colors duration-200"
+            className="flex items-center px-4 py-2 text-gray-600 hover:text-gray-800 transition-colors duration-200 rounded-lg hover:bg-white/50"
           >
             <ArrowLeftIcon className="h-5 w-5 mr-2" />
-            Back to Menu
+            Back to Home
           </button>
           <div className="text-center">
-            <h1 className="text-3xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
-              SecureFile Pro
-            </h1>
+            <h1 className="text-2xl font-bold text-gray-800">SecureFile Pro</h1>
           </div>
-          <div className="w-20"></div> {/* Spacer for centering */}
+          <div className="w-24"></div> {/* Spacer for center alignment */}
         </div>
 
+        {/* Main Content */}
         <div className="max-w-2xl mx-auto">
-          {/* Title Section */}
-          <div className="text-center mb-8">
-            <div className="flex justify-center mb-4">
-              <div className={`bg-gradient-to-r ${gradientFrom} ${gradientTo} p-4 rounded-full shadow-lg`}>
-                <IconComponent className="h-8 w-8 text-white" />
-              </div>
-            </div>
-            <h2 className="text-3xl font-bold text-gray-800 mb-2">{title}</h2>
-            <p className="text-gray-600">{subtitle}</p>
-          </div>
-
-          {/* Main Form */}
           <div className="bg-white rounded-3xl shadow-xl p-8 border border-gray-100">
+            {/* Title Section */}
+            <div className="text-center mb-8">
+              <div className="flex justify-center mb-4">
+                <div className={`bg-gradient-to-r ${gradientFrom} ${gradientTo} p-3 rounded-full shadow-lg`}>
+                  <IconComponent className="h-8 w-8 text-white" />
+                </div>
+              </div>
+              <h2 className="text-3xl font-bold text-gray-800 mb-2">{title}</h2>
+              <p className="text-gray-600">{subtitle}</p>
+            </div>
+
             {/* File Upload Section */}
             <div className="mb-6">
-              <label className="block text-sm font-medium text-gray-700 mb-3">
+              <label className="block text-sm font-medium text-gray-700 mb-2">
                 Select File
               </label>
               <div
-                className={`border-2 border-dashed rounded-xl p-8 text-center transition-all duration-300 ${
+                className={`relative border-2 border-dashed rounded-xl p-8 text-center transition-all duration-200 ${
                   isDragging
                     ? 'border-blue-400 bg-blue-50'
                     : selectedFile
@@ -317,39 +453,33 @@ export default function FileProcessor() {
                 onDragLeave={handleDragLeave}
                 onDrop={handleDrop}
               >
-                {selectedFile ? (
-                  <div className="flex items-center justify-center">
-                    <DocumentIcon className="h-8 w-8 text-green-600 mr-3" />
-                    <div className="text-left">
-                      <p className="text-sm font-medium text-gray-900">{selectedFile.name}</p>
-                      <p className="text-xs text-gray-500">
+                <input
+                  type="file"
+                  onChange={handleFileSelect}
+                  className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                />
+                <div className="space-y-2">
+                  <DocumentIcon className="h-12 w-12 text-gray-400 mx-auto" />
+                  {selectedFile ? (
+                    <>
+                      <p className="text-green-600 font-medium">{selectedFile.name}</p>
+                      <p className="text-sm text-gray-500">
                         {(selectedFile.size / 1024).toFixed(1)} KB
                       </p>
-                    </div>
-                  </div>
-                ) : (
-                  <div>
-                    <ArrowUpTrayIcon className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-                    <p className="text-lg text-gray-600 mb-2">
-                      Drag and drop your file here
-                    </p>
-                    <p className="text-sm text-gray-500 mb-4">or</p>
-                    <label className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors duration-200 cursor-pointer">
-                      <span>Choose File</span>
-                      <input
-                        type="file"
-                        onChange={handleFileSelect}
-                        className="hidden"
-                      />
-                    </label>
-                  </div>
-                )}
+                    </>
+                  ) : (
+                    <>
+                      <p className="text-gray-600">Drop your file here or click to browse</p>
+                      <p className="text-sm text-gray-400">Any file type supported</p>
+                    </>
+                  )}
+                </div>
               </div>
             </div>
 
             {/* Key Input Section */}
             <div className="mb-6">
-              <label className="block text-sm font-medium text-gray-700 mb-3">
+              <label className="block text-sm font-medium text-gray-700 mb-2">
                 Encryption Key
               </label>
               <div className="relative">
@@ -357,13 +487,13 @@ export default function FileProcessor() {
                   type={showKey ? 'text' : 'password'}
                   value={key}
                   onChange={(e) => setKey(e.target.value)}
-                  placeholder="Enter your encryption key..."
+                  placeholder="Enter your encryption key"
                   className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 pr-12"
                 />
                 <button
                   type="button"
                   onClick={() => setShowKey(!showKey)}
-                  className="absolute right-3 top-1/2 transform -translate-y-1/2 p-1 text-gray-500 hover:text-gray-700 transition-colors duration-200"
+                  className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors duration-200"
                 >
                   {showKey ? (
                     <EyeSlashIcon className="h-5 w-5" />
@@ -372,53 +502,55 @@ export default function FileProcessor() {
                   )}
                 </button>
               </div>
-              <p className="text-xs text-gray-500 mt-2">
-                Remember this key - you'll need it to decrypt your file later!
+              <p className="text-xs text-gray-500 mt-1">
+                Keep your key safe - you'll need it to decrypt your files
               </p>
             </div>
 
             {/* Process Button */}
             <button
               onClick={handleProcess}
-              disabled={loading || !selectedFile || !key}
-              className={`w-full py-4 px-6 rounded-xl font-medium text-white transition-all duration-300 ${
-                loading || !selectedFile || !key
-                  ? 'bg-gray-400 cursor-not-allowed'
-                  : `bg-gradient-to-r ${gradientFrom} ${gradientTo} hover:shadow-lg transform hover:-translate-y-1`
+              disabled={!selectedFile || !key.trim() || loading}
+              className={`w-full py-4 px-6 rounded-xl font-medium text-white transition-all duration-200 ${
+                !selectedFile || !key.trim() || loading
+                  ? 'bg-gray-300 cursor-not-allowed'
+                  : `bg-gradient-to-r ${gradientFrom} ${gradientTo} hover:shadow-lg transform hover:-translate-y-0.5`
               }`}
             >
               {loading ? (
                 <div className="flex items-center justify-center">
-                  <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white mr-3"></div>
-                  Processing...
+                  <div className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent mr-2"></div>
+                  {isEncrypt ? 'Encrypting...' : 'Decrypting...'}
                 </div>
               ) : (
-                `${title} & Download`
+                <>
+                  {isEncrypt ? 'Encrypt File' : 'Decrypt File'}
+                </>
               )}
             </button>
 
             {/* Message Display */}
             {message && (
-              <div className={`mt-4 p-4 rounded-xl ${
-                message.includes('successfully') 
-                  ? 'bg-green-50 text-green-800 border border-green-200' 
-                  : 'bg-red-50 text-red-800 border border-red-200'
+              <div className={`mt-6 p-4 rounded-xl ${
+                message.includes('❌') || message.includes('🔐') || message.includes('📁')
+                  ? 'bg-red-50 text-red-700 border border-red-200'
+                  : 'bg-green-50 text-green-700 border border-green-200'
               }`}>
-                {message}
+                <p className="text-center font-medium">{message}</p>
               </div>
             )}
-          </div>
 
-          {/* Security Notice */}
-          <div className="mt-8 bg-blue-50 rounded-xl p-6 border border-blue-200">
-            <div className="flex items-start">
-              <ShieldCheckIcon className="h-6 w-6 text-blue-600 mr-3 mt-1 flex-shrink-0" />
-              <div>
-                <h4 className="font-semibold text-blue-900 mb-2">Security Notice</h4>
-                <p className="text-sm text-blue-800 leading-relaxed">
-                  Your files are processed entirely in your browser. No data is uploaded to any server. 
-                  Keep your encryption key safe - without it, your encrypted files cannot be recovered.
-                </p>
+            {/* Security Notice */}
+            <div className="mt-8 p-4 bg-amber-50 border border-amber-200 rounded-xl">
+              <div className="flex items-start">
+                <ShieldCheckIcon className="h-5 w-5 text-amber-600 mr-2 mt-0.5 flex-shrink-0" />
+                <div className="text-sm text-amber-800">
+                  <p className="font-medium mb-1">Security Notice</p>
+                  <p>
+                    All encryption and decryption happens locally in your browser. 
+                    Your files and keys are never sent to any server or stored anywhere.
+                  </p>
+                </div>
               </div>
             </div>
           </div>
