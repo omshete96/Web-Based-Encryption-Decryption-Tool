@@ -65,7 +65,7 @@ export default function FileProcessor() {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
   const [isDragging, setIsDragging] = useState(false);
-
+  
   const resetForm = () => {
     setSelectedFile(null);
     setKey('');
@@ -312,7 +312,7 @@ export default function FileProcessor() {
               SecureFile Pro
             </h1>
             <p className="text-xl text-gray-600 max-w-2xl mx-auto leading-relaxed">
-              Advanced XOR-based file encryption and decryption with military-grade security. 
+              Advanced file Encryption and Decryption with military-grade security. 
               Protect your sensitive files with ease and confidence.
             </p>
           </div>
@@ -365,6 +365,7 @@ export default function FileProcessor() {
             </div>
           </div>
 
+
           {/* Feature highlights */}
           <div className="max-w-6xl mx-auto mt-20 grid md:grid-cols-3 gap-8">
             <div className="text-center">
@@ -374,6 +375,7 @@ export default function FileProcessor() {
               <h4 className="font-semibold text-gray-800 mb-2">Military-Grade Security</h4>
               <p className="text-sm text-gray-600">Advanced XOR encryption ensures your files remain completely secure and private.</p>
             </div>
+            
             <div className="text-center">
               <div className="bg-green-100 p-3 rounded-full w-16 h-16 flex items-center justify-center mx-auto mb-4">
                 <DocumentIcon className="h-8 w-8 text-green-600" />
@@ -381,6 +383,7 @@ export default function FileProcessor() {
               <h4 className="font-semibold text-gray-800 mb-2">Any File Type</h4>
               <p className="text-sm text-gray-600">Encrypt documents, images, videos, and any other file format with ease.</p>
             </div>
+            
             <div className="text-center">
               <div className="bg-purple-100 p-3 rounded-full w-16 h-16 flex items-center justify-center mx-auto mb-4">
                 <EyeSlashIcon className="h-8 w-8 text-purple-600" />
@@ -389,8 +392,16 @@ export default function FileProcessor() {
               <p className="text-sm text-gray-600">Your files and keys are processed locally - nothing is stored or transmitted.</p>
             </div>
           </div>
+
+          {/* Developer Credit */}
+          <div className="text-center mt-16 pb-8">
+            <p className="text-sm text-gray-400">
+              Developed by <span className="font-medium text-gray-600">Om Shete</span>
+            </p>
+          </div>
         </div>
       </div>
+      
     );
   }
 
