@@ -1,7 +1,7 @@
-'use client';
+"use client"
 import { useState, useEffect } from 'react';
 
-// Simple SVG Icons
+// Simple SVG Icons (keeping original icons)
 const LockClosedIcon = ({ className }) => (
   <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
@@ -57,31 +57,46 @@ const ArrowLeftIcon = ({ className }) => (
   </svg>
 );
 
+const CheckCircleIcon = ({ className }) => (
+  <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+  </svg>
+);
+
+const XCircleIcon = ({ className }) => (
+  <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" />
+  </svg>
+);
+
+const RefreshIcon = ({ className }) => (
+  <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+  </svg>
+);
+
 export default function FileProcessor() {
-  const [currentStep, setCurrentStep] = useState('choice'); // 'choice', 'encrypt', 'decrypt'
+  const [currentStep, setCurrentStep] = useState('choice');
   const [selectedFile, setSelectedFile] = useState(null);
   const [key, setKey] = useState('');
   const [showKey, setShowKey] = useState(false);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
+  const [operationStatus, setOperationStatus] = useState(null); // 'success' or 'error'
   const [isDragging, setIsDragging] = useState(false);
   
   // Browser history management
   useEffect(() => {
-    // Initialize browser history state
     const currentState = { step: currentStep };
     window.history.replaceState(currentState, '', window.location.href);
     
-    // Handle browser back/forward buttons
     const handlePopState = (event) => {
       if (event.state && event.state.step) {
         setCurrentStep(event.state.step);
-        // Reset form when going back to choice
         if (event.state.step === 'choice') {
           resetForm();
         }
       } else {
-        // If no state, default to choice
         setCurrentStep('choice');
         resetForm();
       }
@@ -94,12 +109,10 @@ export default function FileProcessor() {
     };
   }, []);
 
-  // Update browser history when step changes
   useEffect(() => {
     const currentState = { step: currentStep };
     const url = window.location.href;
     
-    // Push new state to history (except for initial load)
     if (currentStep !== 'choice' || window.history.state?.step) {
       window.history.pushState(currentState, '', url);
     }
@@ -110,10 +123,10 @@ export default function FileProcessor() {
     setKey('');
     setShowKey(false);
     setMessage('');
+    setOperationStatus(null);
   };
 
   const handleBack = () => {
-    // Use browser history instead of direct state change
     window.history.back();
   };
 
@@ -126,6 +139,7 @@ export default function FileProcessor() {
     const file = event.target.files[0];
     setSelectedFile(file);
     setMessage('');
+    setOperationStatus(null);
   };
 
   const handleDragOver = (e) => {
@@ -145,200 +159,181 @@ export default function FileProcessor() {
     if (file) {
       setSelectedFile(file);
       setMessage('');
+      setOperationStatus(null);
     }
   };
 
-  // Magic header for validation (must match C++ version)
-  const MAGIC_HEADER = 'SFPRO_ENC_V1';
-
-  // Simple XOR encryption function with magic header for validation
-  const xorEncrypt = (data, key) => {
-    // Create header with magic header + filename length + filename
-    const originalFilename = selectedFile.name;
-    const magicBytes = new TextEncoder().encode(MAGIC_HEADER);
-    const filenameBytes = new TextEncoder().encode(originalFilename);
-    const filenameLengthBytes = new Uint8Array(4);
+  // Enhanced file download function with better MIME type handling
+  const downloadFile = (data, filename, isDecrypted = false) => {
+    let mimeType = 'application/octet-stream';
     
-    // Convert filename length to 4-byte little endian
-    const filenameLength = filenameBytes.length;
-    filenameLengthBytes[0] = filenameLength & 0xFF;
-    filenameLengthBytes[1] = (filenameLength >> 8) & 0xFF;
-    filenameLengthBytes[2] = (filenameLength >> 16) & 0xFF;
-    filenameLengthBytes[3] = (filenameLength >> 24) & 0xFF;
-    
-    // Combine header and data
-    const totalLength = magicBytes.length + filenameLengthBytes.length + filenameBytes.length + data.length;
-    const combinedData = new Uint8Array(totalLength);
-    
-    let offset = 0;
-    combinedData.set(magicBytes, offset);
-    offset += magicBytes.length;
-    combinedData.set(filenameLengthBytes, offset);
-    offset += filenameLengthBytes.length;
-    combinedData.set(filenameBytes, offset);
-    offset += filenameBytes.length;
-    combinedData.set(data, offset);
-    
-    // XOR encrypt the combined data
-    const result = new Uint8Array(combinedData.length);
-    for (let i = 0; i < combinedData.length; i++) {
-      result[i] = combinedData[i] ^ key.charCodeAt(i % key.length);
+    // If it's a decrypted file, try to determine the MIME type from the extension
+    if (isDecrypted) {
+      const extension = filename.split('.').pop()?.toLowerCase();
+      const mimeTypes = {
+        'txt': 'text/plain',
+        'pdf': 'application/pdf',
+        'doc': 'application/msword',
+        'docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        'jpg': 'image/jpeg',
+        'jpeg': 'image/jpeg',
+        'png': 'image/png',
+        'gif': 'image/gif',
+        'mp3': 'audio/mpeg',
+        'mp4': 'video/mp4',
+        'zip': 'application/zip',
+        'json': 'application/json',
+        'csv': 'text/csv',
+        'html': 'text/html',
+        'css': 'text/css',
+        'js': 'text/javascript'
+      };
+      mimeType = mimeTypes[extension] || 'application/octet-stream';
     }
-    return result;
+    
+    const blob = new Blob([data], { type: mimeType });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.style.display = 'none';
+    document.body.appendChild(a);
+    a.click();
+    
+    // Clean up
+    setTimeout(() => {
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+    }, 100);
   };
 
-  // XOR decryption function with enhanced validation (matching C++ logic)
-  const xorDecrypt = (data, key) => {
-    // First check if key is empty
-    if (!key || key.length === 0) {
-      throw new Error('Key cannot be empty');
-    }
-
-    // XOR decrypt the data
-    const decrypted = new Uint8Array(data.length);
-    for (let i = 0; i < data.length; i++) {
-      decrypted[i] = data[i] ^ key.charCodeAt(i % key.length);
-    }
-    
-    // Validate magic header - check minimum file size first
-    const magicBytes = new TextEncoder().encode(MAGIC_HEADER);
-    if (decrypted.length < magicBytes.length) {
-      throw new Error('Invalid or corrupted encrypted file format');
-    }
-    
-    // Extract and validate magic header
-    const extractedMagic = new TextDecoder().decode(decrypted.slice(0, magicBytes.length));
-    if (extractedMagic !== MAGIC_HEADER) {
-      throw new Error('Incorrect decryption key or corrupted file');
-    }
-    
-    // Extract filename length - ensure we have enough bytes
-    let offset = magicBytes.length;
-    if (decrypted.length < offset + 4) {
-      throw new Error('Invalid encrypted file format');
-    }
-    
-    const filenameLength = 
-      decrypted[offset] |
-      (decrypted[offset + 1] << 8) |
-      (decrypted[offset + 2] << 16) |
-      (decrypted[offset + 3] << 24);
-    
-    offset += 4;
-    
-    // Validate filename length
-    if (filenameLength === 0) {
-      throw new Error('Invalid filename length in encrypted file');
-    }
-    
-    if (offset + filenameLength > decrypted.length) {
-      throw new Error('Invalid filename length in encrypted file - exceeds file size');
-    }
-    
-    // Extract original filename with additional validation
-    let originalFilename;
-    try {
-      originalFilename = new TextDecoder().decode(decrypted.slice(offset, offset + filenameLength));
-      
-      // Validate filename contains printable characters
-      if (originalFilename.length === 0 || !/^[\x20-\x7E]+$/.test(originalFilename)) {
-        throw new Error('Invalid filename in encrypted file');
+  // Enhanced filename handling
+  const getProcessedFilename = (originalName, isEncryption) => {
+    if (isEncryption) {
+      return `${originalName}.enc`;
+    } else {
+      // For decryption, remove .enc extension
+      if (originalName.endsWith('.enc')) {
+        return originalName.slice(0, -4);
+      } else {
+        // If the file doesn't have .enc extension, add _decrypted suffix
+        const lastDotIndex = originalName.lastIndexOf('.');
+        if (lastDotIndex > 0) {
+          const name = originalName.substring(0, lastDotIndex);
+          const ext = originalName.substring(lastDotIndex);
+          return `${name}_decrypted${ext}`;
+        } else {
+          return `${originalName}_decrypted`;
+        }
       }
-    } catch (e) {
-      throw new Error('Invalid filename encoding in encrypted file');
     }
-    
-    offset += filenameLength;
-    
-    // Ensure there's actual file data
-    if (offset >= decrypted.length) {
-      throw new Error('No file data found in encrypted file');
-    }
-    
-    // Extract file data
-    const fileData = decrypted.slice(offset);
-    
-    return { fileData, originalFilename };
   };
 
   const handleProcess = async () => {
     if (!selectedFile || !key.trim()) {
-      setMessage('Please select a file and enter a key.');
+      setMessage('Please select a file and enter a key');
+      setOperationStatus('error');
       return;
     }
 
     setLoading(true);
     setMessage('');
+    setOperationStatus(null);
 
     try {
-      // Read file as array buffer
-      const fileBuffer = await selectedFile.arrayBuffer();
-      const fileData = new Uint8Array(fileBuffer);
-      
-      if (currentStep === 'encrypt') {
-        // Encrypt the file
-        const encryptedData = xorEncrypt(fileData, key);
-        
-        // Create download
-        const blob = new Blob([encryptedData], { type: 'application/octet-stream' });
-        const url = window.URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = selectedFile.name + '.enc';
-        
-        document.body.appendChild(a);
-        a.click();
-        window.URL.revokeObjectURL(url);
-        document.body.removeChild(a);
-        
-        setMessage('✅ File encrypted and downloaded successfully! 🎉');
-      } else {
-        // Decrypt the file with enhanced error handling
-        try {
-          const { fileData: decryptedData, originalFilename } = xorDecrypt(fileData, key);
-          
-          // Create download only if decryption was successful
-          const blob = new Blob([decryptedData], { type: 'application/octet-stream' });
-          const url = window.URL.createObjectURL(blob);
-          const a = document.createElement('a');
-          a.href = url;
-          a.download = originalFilename;
-          
-          document.body.appendChild(a);
-          a.click();
-          window.URL.revokeObjectURL(url);
-          document.body.removeChild(a);
-          
-          setMessage(`✅ File decrypted and downloaded successfully as "${originalFilename}"! 🎉`);
-        } catch (decryptError) {
-          // Enhanced error handling with specific messages
-          console.error('Decryption error:', decryptError.message);
-          
-          if (decryptError.message.includes('Incorrect decryption key') || 
-              decryptError.message.includes('Invalid filename') ||
-              decryptError.message.includes('Invalid filename encoding')) {
-            setMessage('🔐 Incorrect decryption key! Please verify your key and try again.');
-          } else if (decryptError.message.includes('corrupted file') || 
-                     decryptError.message.includes('Invalid encrypted file format') ||
-                     decryptError.message.includes('Invalid or corrupted encrypted file format')) {
-            setMessage('📁 The file appears to be corrupted or not in the correct encrypted format.');
-          } else if (decryptError.message.includes('Key cannot be empty')) {
-            setMessage('🔑 Please enter a decryption key.');
-          } else if (decryptError.message.includes('Invalid filename length')) {
-            setMessage('🔐 Invalid file structure. Please check your decryption key.');
-          } else if (decryptError.message.includes('No file data found')) {
-            setMessage('📁 Invalid encrypted file - no data found.');
-          } else {
-            setMessage(`❌ Decryption failed: ${decryptError.message}`);
-          }
-        }
+      const formData = new FormData();
+      formData.append('file', selectedFile);
+      formData.append('key', key.trim()); // Trim whitespace from key
+
+      const endpoint = currentStep === 'encrypt' ? '/api/encrypt' : '/api/decrypt';
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Processing failed');
       }
+
+      // Get the processed data as array buffer for better handling
+      const arrayBuffer = await response.arrayBuffer();
+      const data = new Uint8Array(arrayBuffer);
+      
+      const isEncryption = currentStep === 'encrypt';
+      const filename = getProcessedFilename(selectedFile.name, isEncryption);
+
+      downloadFile(data, filename, !isEncryption);
+      
+      setMessage(`${isEncryption ? 'Encryption' : 'Decryption'} completed successfully! File "${filename}" has been downloaded.`);
+      setOperationStatus('success');
+      
+      // Clear the file and key after successful operation
+      setSelectedFile(null);
+      setKey('');
+      
+      // Reset file input
+      const fileInput = document.querySelector('input[type="file"]');
+      if (fileInput) {
+        fileInput.value = '';
+      }
+      
     } catch (error) {
       console.error('Processing error:', error);
-      setMessage(`❌ Error processing file: ${error.message}`);
+      setMessage(`Error: ${error.message}`);
+      setOperationStatus('error');
+    } finally {
+      setLoading(false);
     }
+  };
 
-    setLoading(false);
+  const handleNewOperation = () => {
+    resetForm();
+    // Reset file input
+    const fileInput = document.querySelector('input[type="file"]');
+    if (fileInput) {
+      fileInput.value = '';
+    }
+  };
+
+  // Validation for encrypted files during decryption
+  const validateEncryptedFile = (file) => {
+    if (currentStep === 'decrypt' && !file.name.includes('.enc')) {
+      setMessage('Warning: This file doesn\'t appear to be encrypted (missing .enc extension). Proceed with caution.');
+      setOperationStatus('error');
+      return false;
+    }
+    return true;
+  };
+
+  const handleFileSelectWithValidation = (event) => {
+    const file = event.target.files[0];
+    if (file) {
+      setSelectedFile(file);
+      setMessage('');
+      setOperationStatus(null);
+      
+      // Validate file for decryption
+      if (currentStep === 'decrypt') {
+        validateEncryptedFile(file);
+      }
+    }
+  };
+
+  const handleDropWithValidation = (e) => {
+    e.preventDefault();
+    setIsDragging(false);
+    const file = e.dataTransfer.files[0];
+    if (file) {
+      setSelectedFile(file);
+      setMessage('');
+      setOperationStatus(null);
+      
+      // Validate file for decryption
+      if (currentStep === 'decrypt') {
+        validateEncryptedFile(file);
+      }
+    }
   };
 
   // Landing Page - Choice Selection
@@ -409,7 +404,6 @@ export default function FileProcessor() {
             </div>
           </div>
 
-
           {/* Feature highlights */}
           <div className="max-w-6xl mx-auto mt-20 grid md:grid-cols-3 gap-8">
             <div className="text-center">
@@ -445,7 +439,6 @@ export default function FileProcessor() {
           </div>
         </div>
       </div>
-      
     );
   }
 
@@ -474,7 +467,7 @@ export default function FileProcessor() {
           <div className="text-center">
             <h1 className="text-2xl font-bold text-gray-800">SecureFile Pro</h1>
           </div>
-          <div className="w-24"></div> {/* Spacer for center alignment */}
+          <div className="w-24"></div>
         </div>
 
         {/* Main Content */}
@@ -494,7 +487,7 @@ export default function FileProcessor() {
             {/* File Upload Section */}
             <div className="mb-6">
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                Select File
+                Select File {currentStep === 'decrypt' ? '(.enc files only)' : ''}
               </label>
               <div
                 className={`relative border-2 border-dashed rounded-xl p-8 text-center transition-all duration-200 ${
@@ -506,12 +499,13 @@ export default function FileProcessor() {
                 }`}
                 onDragOver={handleDragOver}
                 onDragLeave={handleDragLeave}
-                onDrop={handleDrop}
+                onDrop={handleDropWithValidation}
               >
                 <input
                   type="file"
-                  onChange={handleFileSelect}
+                  onChange={handleFileSelectWithValidation}
                   className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                  accept={currentStep === 'decrypt' ? '.enc' : undefined}
                 />
                 <div className="space-y-2">
                   <DocumentIcon className="h-12 w-12 text-gray-400 mx-auto" />
@@ -524,8 +518,12 @@ export default function FileProcessor() {
                     </>
                   ) : (
                     <>
-                      <p className="text-gray-600">Drop your file here or click to browse</p>
-                      <p className="text-sm text-gray-400">Any file type supported</p>
+                      <p className="text-gray-600">
+                        Drop your {currentStep === 'decrypt' ? 'encrypted ' : ''}file here or click to browse
+                      </p>
+                      <p className="text-sm text-gray-400">
+                        {currentStep === 'decrypt' ? 'Only .enc files supported' : 'Any file type supported'}
+                      </p>
                     </>
                   )}
                 </div>
@@ -558,7 +556,10 @@ export default function FileProcessor() {
                 </button>
               </div>
               <p className="text-xs text-gray-500 mt-1">
-                Keep your key safe - you'll need it to decrypt your files
+                {currentStep === 'decrypt' 
+                  ? 'Enter the same key used for encryption' 
+                  : 'Keep your key safe - you\'ll need it to decrypt your files'
+                }
               </p>
             </div>
 
@@ -584,14 +585,40 @@ export default function FileProcessor() {
               )}
             </button>
 
-            {/* Message Display */}
+            {/* Status Message Display */}
             {message && (
-              <div className={`mt-6 p-4 rounded-xl ${
-                message.includes('❌') || message.includes('🔐') || message.includes('📁')
-                  ? 'bg-red-50 text-red-700 border border-red-200'
-                  : 'bg-green-50 text-green-700 border border-green-200'
+              <div className={`mt-6 p-4 rounded-xl border ${
+                operationStatus === 'success'
+                  ? 'bg-green-50 text-green-700 border-green-200'
+                  : 'bg-red-50 text-red-700 border-red-200'
               }`}>
-                <p className="text-center font-medium">{message}</p>
+                <div className="flex items-center">
+                  {operationStatus === 'success' ? (
+                    <CheckCircleIcon className="h-5 w-5 mr-2 flex-shrink-0" />
+                  ) : (
+                    <XCircleIcon className="h-5 w-5 mr-2 flex-shrink-0" />
+                  )}
+                  <p className="font-medium">{message}</p>
+                </div>
+              </div>
+            )}
+
+            {/* Action Buttons after operation */}
+            {operationStatus && (
+              <div className="mt-6 flex gap-4">
+                <button
+                  onClick={handleNewOperation}
+                  className="flex-1 flex items-center justify-center px-4 py-3 bg-gray-100 text-gray-700 rounded-xl hover:bg-gray-200 transition-colors duration-200"
+                >
+                  <RefreshIcon className="h-5 w-5 mr-2" />
+                  {operationStatus === 'success' ? 'Process Another File' : 'Try Again'}
+                </button>
+                <button
+                  onClick={() => navigateToStep('choice')}
+                  className="flex-1 px-4 py-3 bg-blue-100 text-blue-700 rounded-xl hover:bg-blue-200 transition-colors duration-200"
+                >
+                  Back to Home
+                </button>
               </div>
             )}
 
