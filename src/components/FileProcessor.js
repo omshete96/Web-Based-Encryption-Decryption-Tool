@@ -1,5 +1,5 @@
 'use client';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 
 // Simple SVG Icons
 const LockClosedIcon = ({ className }) => (
@@ -65,7 +65,46 @@ export default function FileProcessor() {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
   const [isDragging, setIsDragging] = useState(false);
+  
+  // Browser history management
+  useEffect(() => {
+    // Initialize browser history state
+    const currentState = { step: currentStep };
+    window.history.replaceState(currentState, '', window.location.href);
+    
+    // Handle browser back/forward buttons
+    const handlePopState = (event) => {
+      if (event.state && event.state.step) {
+        setCurrentStep(event.state.step);
+        // Reset form when going back to choice
+        if (event.state.step === 'choice') {
+          resetForm();
+        }
+      } else {
+        // If no state, default to choice
+        setCurrentStep('choice');
+        resetForm();
+      }
+    };
 
+    window.addEventListener('popstate', handlePopState);
+    
+    return () => {
+      window.removeEventListener('popstate', handlePopState);
+    };
+  }, []);
+
+  // Update browser history when step changes
+  useEffect(() => {
+    const currentState = { step: currentStep };
+    const url = window.location.href;
+    
+    // Push new state to history (except for initial load)
+    if (currentStep !== 'choice' || window.history.state?.step) {
+      window.history.pushState(currentState, '', url);
+    }
+  }, [currentStep]);
+  
   const resetForm = () => {
     setSelectedFile(null);
     setKey('');
@@ -74,7 +113,12 @@ export default function FileProcessor() {
   };
 
   const handleBack = () => {
-    setCurrentStep('choice');
+    // Use browser history instead of direct state change
+    window.history.back();
+  };
+
+  const navigateToStep = (step) => {
+    setCurrentStep(step);
     resetForm();
   };
 
@@ -312,7 +356,7 @@ export default function FileProcessor() {
               SecureFile Pro
             </h1>
             <p className="text-xl text-gray-600 max-w-2xl mx-auto leading-relaxed">
-              Advanced XOR-based file encryption and decryption with military-grade security. 
+              Advanced file Encryption and Decryption with military-grade security. 
               Protect your sensitive files with ease and confidence.
             </p>
           </div>
@@ -320,7 +364,7 @@ export default function FileProcessor() {
           <div className="max-w-4xl mx-auto grid md:grid-cols-2 gap-8">
             {/* Encryption Card */}
             <div 
-              onClick={() => setCurrentStep('encrypt')}
+              onClick={() => navigateToStep('encrypt')}
               className="group relative overflow-hidden bg-white rounded-3xl shadow-xl hover:shadow-2xl transition-all duration-500 cursor-pointer transform hover:-translate-y-2 border border-gray-100"
             >
               <div className="absolute inset-0 bg-gradient-to-br from-green-400/10 to-blue-400/10 opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
@@ -343,7 +387,7 @@ export default function FileProcessor() {
 
             {/* Decryption Card */}
             <div 
-              onClick={() => setCurrentStep('decrypt')}
+              onClick={() => navigateToStep('decrypt')}
               className="group relative overflow-hidden bg-white rounded-3xl shadow-xl hover:shadow-2xl transition-all duration-500 cursor-pointer transform hover:-translate-y-2 border border-gray-100"
             >
               <div className="absolute inset-0 bg-gradient-to-br from-purple-400/10 to-pink-400/10 opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
@@ -365,6 +409,7 @@ export default function FileProcessor() {
             </div>
           </div>
 
+
           {/* Feature highlights */}
           <div className="max-w-6xl mx-auto mt-20 grid md:grid-cols-3 gap-8">
             <div className="text-center">
@@ -374,6 +419,7 @@ export default function FileProcessor() {
               <h4 className="font-semibold text-gray-800 mb-2">Military-Grade Security</h4>
               <p className="text-sm text-gray-600">Advanced XOR encryption ensures your files remain completely secure and private.</p>
             </div>
+            
             <div className="text-center">
               <div className="bg-green-100 p-3 rounded-full w-16 h-16 flex items-center justify-center mx-auto mb-4">
                 <DocumentIcon className="h-8 w-8 text-green-600" />
@@ -381,6 +427,7 @@ export default function FileProcessor() {
               <h4 className="font-semibold text-gray-800 mb-2">Any File Type</h4>
               <p className="text-sm text-gray-600">Encrypt documents, images, videos, and any other file format with ease.</p>
             </div>
+            
             <div className="text-center">
               <div className="bg-purple-100 p-3 rounded-full w-16 h-16 flex items-center justify-center mx-auto mb-4">
                 <EyeSlashIcon className="h-8 w-8 text-purple-600" />
@@ -389,8 +436,16 @@ export default function FileProcessor() {
               <p className="text-sm text-gray-600">Your files and keys are processed locally - nothing is stored or transmitted.</p>
             </div>
           </div>
+
+          {/* Developer Credit */}
+          <div className="text-center mt-16 pb-8">
+            <p className="text-sm text-gray-400">
+              Developed by <span className="font-medium text-gray-600">Om Shete</span>
+            </p>
+          </div>
         </div>
       </div>
+      
     );
   }
 
@@ -540,7 +595,7 @@ export default function FileProcessor() {
               </div>
             )}
 
-            {/* Security Notice */}
+             {/* Security Notice */}
             <div className="mt-8 p-4 bg-amber-50 border border-amber-200 rounded-xl">
               <div className="flex items-start">
                 <ShieldCheckIcon className="h-5 w-5 text-amber-600 mr-2 mt-0.5 flex-shrink-0" />
