@@ -595,6 +595,12 @@ export default function FileProcessor() {
               </div>
             )}
 
+              {/* Developer Credit */}
+          <div className="text-center mt-16 pb-8">
+            <p className="text-sm text-gray-400">
+              Developed by <span className="font-medium text-gray-600">Om Shete</span>
+            </p>
+          </div>
              {/* Security Notice */}
             <div className="mt-8 p-4 bg-amber-50 border border-amber-200 rounded-xl">
               <div className="flex items-start">
